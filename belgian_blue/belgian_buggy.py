@@ -23,7 +23,7 @@ def parse_cmd(args):
     parser.add_argument('--output-file',
                         dest='out_file',
                         default='out.csv',
-                        help='Output file prefix path (default: %default)')
+                        help='Output file prefix path (default: %(default)s)')
 
     args_data = parser.parse_args()
 
