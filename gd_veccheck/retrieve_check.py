@@ -20,9 +20,8 @@ AAComparison = namedtuple('AAComparison', 'identical, subset, superset')
 
 '''Path constants'''
 PATH_MASTER = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/PEB-VEC_test1.txt'
-PATH_ROOT = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/'
-PATH_1 = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/vec-398.xml'
-PATH_2 = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/tpp-250.xml'
+PATH_OUT = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/tmp.csv'
+PATH_FILES = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/'
 
 '''Web constants'''
 URL_ROOT = 'http://puck.bos.us.genedata.com:8000/'
@@ -32,6 +31,10 @@ PASSWD = ''
 
 '''Result constants'''
 IND_KEYS = ['peb_id', 'vec_id', 'vec_sub_id']
+VALUE_RESULT_NAME = 'Comparison Value'
+
+'''Master input file constants'''
+INP_KEYS = ['ID', 'Vector list', 'Target Product Protein ID']
 
 def read_xml(func):
     '''Wrapper function to parse XML data followed by custom selection'''
@@ -99,17 +102,17 @@ def output_format(result):
     '''Convert result to string output for CSV writing'''
 
     if result.identical:
-        ret_val = {'val' : 'PERFECT'}
+        ret_val = {VALUE_RESULT_NAME : 'PERFECT'}
         
     else:
         if result.subset:
-            ret_val = {'val' : 'SUBSET'}
+            ret_val = {VALUE_RESULT_NAME : 'SUBSET'}
             
         elif result.superset:
-            ret_val = {'val' : 'SUPERSET'}
+            ret_val = {VALUE_RESULT_NAME : 'SUPERSET'}
             
         else:
-            ret_val = {'val' : 'POOR'}
+            ret_val = {VALUE_RESULT_NAME : 'POOR'}
             
     return ret_val
 
@@ -139,7 +142,7 @@ def get_xmls_file(cls_str, vec_or_tpp='vec'):
     
     ret_vals = []
     for vec_name in cls_str.split(','):
-        path = PATH_ROOT + '/' + vec_name.lower().strip() + '.xml'
+        path = PATH_FILES + '/' + vec_name.lower().strip() + '.xml'
         
         if vec_or_tpp == 'vec':
             aas_ = read_vec(path)
@@ -162,46 +165,51 @@ def get_tpp_xml(csl_str):
     
     return get_xmls_file(csl_str, 'tpp')
 
-def parse_master_iter(PATH_MASTER, sep=';'):
+def parse_master_iter(path_inp, sep=';'):
     '''Iterator for master file parsing'''
     
-    with open(PATH_MASTER) as fin:
+    with open(path_inp) as fin:
         reader = csv.DictReader(fin, delimiter=sep, quotechar='"')
         for row in reader:
             yield dict(row)
 
-# 
-# MAIN
-#
-df_result = pd.DataFrame()
-for peb_row in parse_master_iter(PATH_MASTER, '\t'):
-        
-    peb_id = peb_row['ID']
-    vec_xmls = get_vec_xmls(peb_row['Vector list'])
-    tpp_xml = get_tpp_xml(peb_row['Target Product Protein ID'])
+def analyze_main(path_inp, sep_inp):
+    '''Main analysis routine and output data creation'''
     
-    vec_ids = [x.strip() for x in peb_row['Vector list'].split(',')]    
-    for vec_id, vec_seq in zip(vec_ids, vec_xmls):
-        for tpp_seq in tpp_xml:
-            ret = comparison(vec_seq, tpp_seq)
+    df_result = pd.DataFrame()
+    
+    # Loop over rows in master input file
+    for peb_row in parse_master_iter(path_inp, sep_inp):
+    
+        # Extract all data from given files
+        peb_id = peb_row[INP_KEYS[0]]
+        vec_xmls = get_vec_xmls(peb_row[INP_KEYS[1]])
+        tpp_xml = get_tpp_xml(peb_row[INP_KEYS[2]])
+    
+        vec_ids = [x.strip() for x in peb_row[INP_KEYS[1]].split(',')]   
+        
+        # Loop over all vector files sequences (outer) and over all tpp 
+        # sequences (inner). Most times expect only one sequence per file,
+        # but logic can handle multiple sequences per file
+        for vec_id, vec_seq in zip(vec_ids, vec_xmls):
+            for tpp_seq in tpp_xml:
+                ret = comparison(vec_seq, tpp_seq)
             
-            for kk, result_row in enumerate(ret):
-                result_formatted = output_format(result_row)
+                # In case multiple sequences in given vec file, disaggregate
+                # the comparison results
+                for kk, result_row in enumerate(ret):
+                    result_formatted = output_format(result_row)
             
-                ind = pd.MultiIndex.from_tuples([(peb_id, vec_id, kk)], 
-                                                names=IND_KEYS)
-                df_result = df_result.append(pd.DataFrame(result_formatted, index=ind))
-print (df_result)
+                    ind = pd.MultiIndex.from_tuples([(peb_id, vec_id, kk)], 
+                                                    names=IND_KEYS)
+                    df_result = df_result.append(pd.DataFrame(result_formatted, index=ind))
+                
+    return df_result
 
+def main():
+    
+    df = analyze_main(PATH_MASTER, '\t')
+    df.to_csv(PATH_OUT, ';')
 
-aas_vec = read_vec(PATH_1)
-ids_vec = read_id(PATH_1)
-aas_tpp = read_tpp(PATH_2)
-ret = comparison(aas_vec, aas_tpp)
-print (ret)
-keys = [{}] * len(ret)
-for result_row in outputter(ret, keys):
-    if result_row is None:
-        pass
-    else:
-        print (result_row)
+if __name__ == '__main__':
+    main()
