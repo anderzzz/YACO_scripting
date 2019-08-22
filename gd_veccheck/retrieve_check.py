@@ -30,7 +30,7 @@ USER = 'admin1'
 PASSWD = ''
 
 '''Result constants'''
-IND_KEYS = ['peb_id', 'vec_id', 'vec_sub_id']
+IND_KEYS = ['peb_id', 'tpp_id', 'vec_id', 'vec_sub_id']
 VALUE_RESULT_NAME = 'Comparison Value'
 
 '''Master input file constants'''
@@ -186,7 +186,8 @@ def analyze_main(path_inp, sep_inp):
         vec_xmls = get_vec_xmls(peb_row[INP_KEYS[1]])
         tpp_xml = get_tpp_xml(peb_row[INP_KEYS[2]])
     
-        vec_ids = [x.strip() for x in peb_row[INP_KEYS[1]].split(',')]   
+        vec_ids = [x.strip() for x in peb_row[INP_KEYS[1]].split(',')]  
+        tpp_id = peb_row[INP_KEYS[2]]
         
         # Loop over all vector files sequences (outer) and over all tpp 
         # sequences (inner). Most times expect only one sequence per file,
@@ -200,7 +201,7 @@ def analyze_main(path_inp, sep_inp):
                 for kk, result_row in enumerate(ret):
                     result_formatted = output_format(result_row)
             
-                    ind = pd.MultiIndex.from_tuples([(peb_id, vec_id, kk)], 
+                    ind = pd.MultiIndex.from_tuples([(peb_id, tpp_id, vec_id, kk)], 
                                                     names=IND_KEYS)
                     df_result = df_result.append(pd.DataFrame(result_formatted, index=ind))
                 
