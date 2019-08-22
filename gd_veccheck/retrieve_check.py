@@ -11,14 +11,27 @@ How to run
 """
 import csv
 import xml.etree.ElementTree as ET
+import pandas as pd
 from collections import namedtuple
+import urllib.request
+import urllib.parse
 
 AAComparison = namedtuple('AAComparison', 'identical, subset, superset')
 
 '''Path constants'''
-PATH_MASTER = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/example_inp.txt'
+PATH_MASTER = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/PEB-VEC_test1.txt'
+PATH_ROOT = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/'
 PATH_1 = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/vec-398.xml'
 PATH_2 = '/Users/andersohrn/Documents/ao_dev/GD_coding/vec_tpp_1908/tpp-250.xml'
+
+'''Web constants'''
+URL_ROOT = 'http://puck.bos.us.genedata.com:8000/'
+URL_CONST = 'Biologics/ws/rest/sequence/aa/qid/'
+USER = 'admin1'
+PASSWD = ''
+
+'''Result constants'''
+IND_KEYS = ['peb_id', 'vec_id', 'vec_sub_id']
 
 def read_xml(func):
     '''Wrapper function to parse XML data followed by custom selection'''
@@ -82,11 +95,11 @@ def comparison(aa_vec, aa_tpp):
         
     return ret
 
-def output_format(result, key={}):
+def output_format(result):
     '''Convert result to string output for CSV writing'''
 
     if result.identical:
-        ret_val = None
+        ret_val = {'val' : 'PERFECT'}
         
     else:
         if result.subset:
@@ -98,30 +111,88 @@ def output_format(result, key={}):
         else:
             ret_val = {'val' : 'POOR'}
             
-    for kk, dd in key.items():
-        ret_val[kk] = dd
-            
     return ret_val
 
-def outputter(results, keys):
-    '''Iterator to output result dictionary'''
+def retrieve_web(file_ids):
+    '''Get resource from web api'''
     
-    for result, key in zip(results, keys):
-        yield output_format(result, key)
+    file_ids_str = ','.join(file_ids)
+    
+    url = URL_ROOT + URL_CONST + file_ids_str
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req) as response:
+        the_page = response.read()
+        
+    print (the_page)
+    
+def init_web():
+    '''Bla bla'''
+    
+    password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+    password_mgr.add_password(None, URL_ROOT, USER, PASSWD)
+    handler = urllib.request.HTTPBasicAuthHandler(password_mgr)
+    opener = urllib.request.build_opener(handler)
+    urllib.request.install_opener(opener)
+
+def get_xmls_file(cls_str, vec_or_tpp='vec'):
+    '''Obtain corresponding vec or tpp files from disk'''
+    
+    ret_vals = []
+    for vec_name in cls_str.split(','):
+        path = PATH_ROOT + '/' + vec_name.lower().strip() + '.xml'
+        
+        if vec_or_tpp == 'vec':
+            aas_ = read_vec(path)
+        elif vec_or_tpp == 'tpp':
+            aas_ = read_tpp(path)
+        else:
+            raise RuntimeError('Unknown XML file type: {}'.format(vec_or_tpp))
+            
+        ret_vals.append(aas_)
+        
+    return ret_vals
+
+def get_vec_xmls(csl_str):
+    '''Obtain corresponding vec files'''
+    
+    return get_xmls_file(csl_str, 'vec')
+
+def get_tpp_xml(csl_str):
+    '''Obtain corresponding tpp files'''
+    
+    return get_xmls_file(csl_str, 'tpp')
 
 def parse_master_iter(PATH_MASTER, sep=';'):
     '''Iterator for master file parsing'''
     
     with open(PATH_MASTER) as fin:
-        reader = csv.DictReader(fin, delimiter=sep)
+        reader = csv.DictReader(fin, delimiter=sep, quotechar='"')
         for row in reader:
             yield dict(row)
 
 # 
 # MAIN
 #
-for peb_row in parse_master_iter(PATH_MASTER):
-    print (peb_row)
+df_result = pd.DataFrame()
+for peb_row in parse_master_iter(PATH_MASTER, '\t'):
+        
+    peb_id = peb_row['ID']
+    vec_xmls = get_vec_xmls(peb_row['Vector list'])
+    tpp_xml = get_tpp_xml(peb_row['Target Product Protein ID'])
+    
+    vec_ids = [x.strip() for x in peb_row['Vector list'].split(',')]    
+    for vec_id, vec_seq in zip(vec_ids, vec_xmls):
+        for tpp_seq in tpp_xml:
+            ret = comparison(vec_seq, tpp_seq)
+            
+            for kk, result_row in enumerate(ret):
+                result_formatted = output_format(result_row)
+            
+                ind = pd.MultiIndex.from_tuples([(peb_id, vec_id, kk)], 
+                                                names=IND_KEYS)
+                df_result = df_result.append(pd.DataFrame(result_formatted, index=ind))
+print (df_result)
+
 
 aas_vec = read_vec(PATH_1)
 ids_vec = read_id(PATH_1)
