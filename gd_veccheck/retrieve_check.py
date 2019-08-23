@@ -36,6 +36,9 @@ VALUE_RESULT_NAME = 'Comparison Value'
 '''Master input file constants'''
 INP_KEYS = ['ID', 'Vector list', 'Target Product Protein ID']
 
+'''Runtime Parameters'''
+FROM_WEB = True
+
 def read_xml(func):
     '''Wrapper function to parse XML data followed by custom selection'''
     
@@ -116,20 +119,23 @@ def output_format(result):
             
     return ret_val
 
-def retrieve_web(file_ids):
+def retrieve_web(file_ids, file_type):
     '''Get resource from web api'''
     
-    file_ids_str = ','.join(file_ids)
+    print (file_ids)
+    file_ids_str = file_ids.lower().strip()
     
     url = URL_ROOT + URL_CONST + file_ids_str
+    print (url)
     req = urllib.request.Request(url)
     with urllib.request.urlopen(req) as response:
         the_page = response.read()
         
     print (the_page)
+    raise Exception
     
 def init_web():
-    '''Bla bla'''
+    '''Do the one time initializations to access web-server'''
     
     password_mgr = urllib.request.HTTPPasswordMgrWithDefaultRealm()
     password_mgr.add_password(None, URL_ROOT, USER, PASSWD)
@@ -155,16 +161,24 @@ def get_xmls_file(cls_str, vec_or_tpp='vec'):
         
     return ret_vals
 
-def get_vec_xmls(csl_str):
+def get_vec_xmls(csl_str, from_web):
     '''Obtain corresponding vec files'''
     
-    return get_xmls_file(csl_str, 'vec')
+    if not from_web:
+        return get_xmls_file(csl_str, 'vec')
+    
+    else:
+        return retrieve_web(csl_str, 'vec')
 
-def get_tpp_xml(csl_str):
+def get_tpp_xml(csl_str, from_web):
     '''Obtain corresponding tpp files'''
     
-    return get_xmls_file(csl_str, 'tpp')
-
+    if not from_web:
+        return get_xmls_file(csl_str, 'tpp')
+    
+    else:
+        return retrieve_web(csl_str, 'tpp')
+    
 def parse_master_iter(path_inp, sep=';'):
     '''Iterator for master file parsing'''
     
@@ -178,13 +192,16 @@ def analyze_main(path_inp, sep_inp):
     
     df_result = pd.DataFrame()
     
+    if FROM_WEB:
+        init_web()
+    
     # Loop over rows in master input file
     for peb_row in parse_master_iter(path_inp, sep_inp):
     
         # Extract all data from given files
         peb_id = peb_row[INP_KEYS[0]]
-        vec_xmls = get_vec_xmls(peb_row[INP_KEYS[1]])
-        tpp_xml = get_tpp_xml(peb_row[INP_KEYS[2]])
+        vec_xmls = get_vec_xmls(peb_row[INP_KEYS[1]], FROM_WEB)
+        tpp_xml = get_tpp_xml(peb_row[INP_KEYS[2]], FROM_WEB)
     
         vec_ids = [x.strip() for x in peb_row[INP_KEYS[1]].split(',')]  
         tpp_id = peb_row[INP_KEYS[2]]
