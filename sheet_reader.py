@@ -1,4 +1,5 @@
-'''Excel sheet reader
+'''Class to read image data from Excel sheets and associate them with a line item. The methods
+build on a specific layout of the Excel sheets wherein they have ordered images
 
 '''
 import zipfile
@@ -9,6 +10,10 @@ from PIL import Image
 from enum import Enum
 
 class WBArchive(Enum):
+    '''An Enum with data to navigate Excel XML rawfiles. This abstracts details of how the Excel sheet is
+    constructed from the methods.
+
+    '''
     WorkBookPath = 'xl/workbook.xml'
     WorkBookSheetName = 'name'
     WorkBookSheetId = 'sheetId'
@@ -22,15 +27,32 @@ class WBArchive(Enum):
     XMLNameSpace2 = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
 class SheetContent(object):
+    '''Parse and associate image content in Excel sheet
 
-    def __init__(self, rawdata_path, sheet_name_selection=None, image_suffix=['png','jpg']):
+    The initialization of the class generates folder `xl` containing unzipped data from the Excel sheet. Under
+    normal execution, these files and folders should be untouched by the user. After execution the folders can
+    be manually deleted.
+
+    Args:
+        rawdata_path (str): Path to Excel sheet to process
+        image_suffix (list, optional): Suffixes for the images to consider in the Excel sheet
+
+    Attributes:
+        sheetname2img (dict): In the rawdata, the association between data sheet and the image. Note that the same image
+            can appear in multiple places.
+        n_imgs (int): The total number of images found in the entire Excel sheet.
+
+    '''
+    def __init__(self, rawdata_path, image_suffix=['png','jpg']):
 
         self.rawdata_path = rawdata_path
         self.image_suffix = image_suffix
+        self.association = None
         self.excel_archive = WBArchive
         self.excel_archive_namespaces = {'ns1' : self.excel_archive.XMLNameSpace1.value,
                                          'ns2' : self.excel_archive.XMLNameSpace2.value}
 
+        # Unzip all image files in the Excel workbook
         self.img_paths = []
         for embedded_file in zipfile.ZipFile(self.rawdata_path).namelist():
             for img_type in self.image_suffix:
@@ -40,8 +62,12 @@ class SheetContent(object):
         self.sheetname2img, self.sheetname2sheetid, self.sheetid2drawing, self.drawing2img = self._associate_sheets_imgs()
 
     def _associate_sheets_imgs(self):
+        '''By parsing the XML raw data, an association between sheet name and rawdata image name is inferred.
+        The association is found via intermediate associations. This function builds on details of how Excel stores
+        its data in XML files. If different Excel versions are used, this function can break.
 
-        # First associate a sheet name with a sheet ID
+        '''
+        # First associate a sheet name with a sheet ID. The association is found in the Workbook rawdata
         sheetname2id = {}
         with zipfile.ZipFile(self.rawdata_path) as zipper:
             tree = self._get_xml(zipper, self.excel_archive.WorkBookPath.value)
@@ -50,7 +76,7 @@ class SheetContent(object):
                     sheetname2id[sheet.attrib[self.excel_archive.WorkBookSheetName.value]] = \
                         int(sheet.attrib[self.excel_archive.WorkBookSheetId.value])
 
-        # Second associate a sheet ID with a drawing ID
+        # Second associate a sheet ID with a drawing ID. A drawing is a collection of graphics that exists in a sheet
         sheetid2drawingid = {}
         with zipfile.ZipFile(self.rawdata_path) as zipper:
             for nsheet, _ in enumerate(sheetname2id):
@@ -63,7 +89,7 @@ class SheetContent(object):
                     drawing_str = xx.attrib[self.excel_archive.WorkSheetRelsDrawing.value]
                     sheetid2drawingid[nsheet + 1] = drawing_str.split('/')[-1]
 
-        # Third associate drawing ID with a plurality of image IDs
+        # Third associate drawing ID with one image ID or a plurality of image IDs
         drawingid2imageids = {}
         with zipfile.ZipFile(self.rawdata_path) as zipper:
             for drawing in sheetid2drawingid.values():
@@ -94,7 +120,9 @@ class SheetContent(object):
         return len(self.img_paths)
 
     def get_image_content(self, sheet_name):
+        '''Return the rawdata images for a given sheet
 
+        '''
         try:
             imgs = self.sheetname2img[sheet_name]
         except KeyError:
@@ -103,7 +131,18 @@ class SheetContent(object):
         return imgs
 
     def associate_imgs(self, sheet_name):
+        '''Create the association between raw data images and experimental identifier.
 
+        The method is not guaranteed to work and builds on reasonable assumptions of how the Excel sheet was constructed.
+        If association is unsuccessful, error messages are printed, but no exception is raised.
+
+        Args:
+            sheet_name (str): The name of the sheet for which to create an association
+
+        Returns:
+            association (dict): Association between experimental identifier and the rawdata image name
+
+        '''
         def ordered_unique(seq):
             seen = set()
             seen_add = seen.add
@@ -125,9 +164,16 @@ class SheetContent(object):
         return self.association
 
     def save_assocation(self, out_name):
+        '''Save rawdata images that have been associated with respective experimental identifiers. This can only be
+        run after the `associate_imgs` has been run
 
-        print (self.association)
-        print (self.img_paths)
+        Args:
+            out_name (str): Path to an existing directory to which the renamed image files are written
+
+        '''
+        if self.association is None:
+            raise RuntimeError('No image association found. Did you run `associate_imgs` prior?')
+
         for run, img_name in self.association.items():
             new_img_name = '{}.{}'.format(run, img_name.split('.')[-1])
             save_path = '{}/{}'.format(out_name, new_img_name)
@@ -142,8 +188,7 @@ class SheetContent(object):
             img_data = img_data.save(save_path)
 
 
-ss = SheetContent('./data/29762_204A_Octet_2020Sep03.xlsx', sheet_name_selection='DataTable')
-print (ss.n_imgs)
-print (ss.get_image_content('DataTable'))
-ss.associate_imgs('DataTable')
-ss.save_assocation('dummy')
+content = SheetContent('./data/29762_204A_Octet_2020Sep03.xlsx')
+print (content.sheetname2img)
+content.associate_imgs('DataTable')
+content.save_assocation('dummy')
